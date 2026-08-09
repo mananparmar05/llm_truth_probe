@@ -60,61 +60,136 @@ LLM:HALL/
 ├── configs/
 │   └── config.yaml
 │
-├── results/
-│   ├── plots/
-│   └── models/
-│
 ├── requirements.txt
 └── setup_env.sh
 ```
 
 ---
 
-## 🚀 Quick Start
+## ⚙️ Multi-Platform System Setup Guide
 
-### 1. Clone and set up environment
+This guide covers setting up the project on **any system** (Linux CUDA GPU server, macOS, Windows WSL2, Conda, or Google Colab).
+
+### System Prerequisites
+- **Python**: `3.10` or `3.11` (Recommended for PyTorch 2.x & CUDA compatibility)
+- **RAM**: Minimum 16 GB (32 GB recommended)
+- **GPU (Recommended for Hidden State Extraction)**: NVIDIA GPU with 16GB+ VRAM (A100, H100, RTX 3090/4090, or T4). *Probe training and evaluation run fast on CPU.*
+
+---
+
+### Option A: Automated One-Shot Setup (Linux / macOS / WSL2)
 
 ```bash
-git clone <your-repo-url>
-cd LLM:HALL
+# 1. Clone repository
+git clone https://github.com/mananparmar05/llm_truth_probe.git
+cd llm_truth_probe
+
+# 2. Run automated environment setup
 bash setup_env.sh
-```
 
-### 2. Activate environment
-
-```bash
-conda activate llm-hall
-# or
+# 3. Activate virtual environment
 source .venv/bin/activate
 ```
 
-### 3. Run the pipeline
+---
+
+### Option B: Manual Virtualenv Setup (Linux / macOS / Windows WSL2)
 
 ```bash
-# Phase 1+2: Extract hidden states (requires GPU)
-python -m extraction.batch_runner
+# 1. Create a Python 3.10 virtual environment
+python3.10 -m venv .venv
+source .venv/bin/activate   # On Windows PowerShell: .venv\Scripts\Activate.ps1
 
-# Phase 3: Train probes (CPU)
-python -m probing.probe_trainer
+# 2. Upgrade core tooling
+pip install --upgrade pip setuptools wheel
 
-# Phase 4: Analysis and visualisation
-python -m analysis.layer_heatmap
-python -m analysis.tsne_visualizer
+# 3. Install PyTorch according to your Hardware:
 
-# Phase 5: Cross-dataset study
-python -m analysis.cross_dataset
+# ---> A) CUDA 12.1 (Linux / Windows CUDA GPU Server)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
-# Phase 6: Control experiments
-python -m analysis.control_experiments
+# ---> B) CUDA 11.8 (Older GPU Drivers)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
-# Phase 7: Serve API
-uvicorn inference.api_wrapper:app --host 0.0.0.0 --port 8000
+# ---> C) CPU / Apple Silicon MPS (macOS M1/M2/M3/M4 or CPU-only server)
+pip install torch torchvision
+
+# 4. Install NumPy 1.x (to avoid PyTorch 2.x NumPy 2.0 C-extension warning)
+pip install "numpy<2.0"
+
+# 5. Install all project dependencies
+pip install -r requirements.txt
 ```
 
-### 4. Run tests
+---
+
+### Option C: Conda / Mamba Setup
 
 ```bash
-pytest tests/ -v --tb=short --cov=. --cov-report=term-missing
+# 1. Create conda environment with Python 3.10
+conda create -n llm-hall python=3.10 -y
+conda activate llm-hall
+
+# 2. Install PyTorch with CUDA support (or cpu/mps for macOS)
+conda install pytorch torchvision pytorch-cuda=12.1 -c pytorch -c nvidia
+
+# 3. Install project dependencies
+pip install "numpy<2.0"
+pip install -r requirements.txt
+```
+
+---
+
+### Option D: Google Colab / Kaggle (Free GPU A100 / T4)
+
+Create a new Colab Notebook and run the first cell:
+
+```python
+# Colab Setup Cell
+!git clone https://github.com/mananparmar05/llm_truth_probe.git
+%cd llm_truth_probe
+!pip install -q -r requirements.txt "numpy<2.0"
+!huggingface-cli login
+```
+
+---
+
+## 🚀 Quick Execution Guide
+
+Once your environment is set up and activated:
+
+```bash
+# 1. Run unit test suite
+pytest tests/test_pipeline.py -v
+
+# 2. Verify all core modules import cleanly
+python -c "import torch, transformers, datasets, sklearn, h5py; print('All core modules OK ✅')"
+
+# 3. Open Jupyter Lab for interactive notebooks
+jupyter lab
+```
+
+### Running the Full Pipeline
+
+```bash
+# Phase 1+2: Extract hidden states (Requires GPU)
+python -m extraction.batch_runner
+
+# Phase 3: Train probes across 32 layers (CPU)
+python -m probing.probe_trainer
+
+# Phase 4: Generate t-SNE & AUROC plots
+python -m analysis.tsne_visualizer
+python -m analysis.layer_heatmap
+
+# Phase 5: Run cross-dataset generalisation study
+python -m analysis.cross_dataset
+
+# Phase 6: Run control experiments
+python -m analysis.control_experiments
+
+# Phase 7: Launch live detection API server
+uvicorn inference.api_wrapper:app --host 0.0.0.0 --port 8000
 ```
 
 ---
