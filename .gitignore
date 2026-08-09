@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb.bak
+
+# Data and model artefacts (large files)
+data/hidden_states/*.h5
+data/hidden_states/*.npz
+results/models/*.pkl
+*.pt
+*.pth
+*.safetensors
+
+# Experiment tracking
+wandb/
+mlruns/
+
+# Environment
+.env
+.envrc
+*.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Logs
+*.log
+logs/
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
