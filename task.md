@@ -30,14 +30,14 @@
 ---
 
 ## Phase 1 — Data Collection & Preparation
-- [ ] Open terminal & activate virtualenv: `source .venv/bin/activate`
-- [ ] Run `notebooks/01_data_exploration.ipynb`
-- [ ] Load TruthfulQA dataset: `datasets.load_dataset("truthful_qa", "generation")`
-- [ ] Load HaluEval dataset: `datasets.load_dataset("pminervini/HaluEval")`
-- [ ] Preprocess & format samples: `"Question: {q}\nAnswer: {a}"` with binary label (0=Truthful, 1=Hallucinated)
-- [ ] Perform stratified 80/10/10 split (random_state=42)
-- [ ] Save processed DataFrames to `data/truthfulqa/` and `data/halueval/`
-- [ ] Verify dataset counts: 817 TruthfulQA pairs, 10,000 HaluEval pairs
+- [x] Open terminal & activate virtualenv: `source .venv/bin/activate`
+- [x] Run `notebooks/01_data_exploration.ipynb`
+- [x] Load TruthfulQA dataset (downloaded from GitHub: `sylinrl/TruthfulQA`)
+- [x] Load HaluEval dataset (downloaded from GitHub: `RUCAIBox/HaluEval`)
+- [x] Preprocess & format samples: `"Question: {q}\nAnswer: {a}"` with binary label (0=Truthful, 1=Hallucinated)
+- [x] Perform stratified 80/10/10 split (random_state=42)
+- [x] Save processed DataFrames to `data/truthfulqa/` and `data/halueval/`
+- [x] Verify dataset counts: 790 TruthfulQA pairs (×2=1580), 10,000 HaluEval pairs (×2=20,000)
 
 ---
 
