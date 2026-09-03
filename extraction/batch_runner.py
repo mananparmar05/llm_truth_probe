@@ -102,7 +102,8 @@ class BatchRunner:
         dataset_name: str = "unknown",
         checkpoint_interval: int = 100,
         resume: bool = True,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        return_in_memory: bool = False,
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Run forward passes over all samples and return hidden states.
         Supports incremental checkpointing to disk and resuming on interruption.
@@ -114,19 +115,22 @@ class BatchRunner:
         dataset_name        : tag written to the store (e.g. "truthfulqa")
         checkpoint_interval : int — save checkpoint every N samples
         resume              : bool — if True, skip already extracted samples from store
+        return_in_memory    : bool — if False and store is provided, do NOT load full dataset into CPU RAM
 
         Returns
         -------
-        all_hidden_states   : np.ndarray  [N, num_layers, hidden_dim]
-        all_labels          : np.ndarray  [N]
+        all_hidden_states   : np.ndarray | None  [N, num_layers, hidden_dim]
+        all_labels          : np.ndarray | None  [N]
         """
         start_idx = 0
         if resume and store is not None:
             already_done = store.get_num_samples(dataset_name)
             if already_done > 0:
                 if already_done >= len(samples):
-                    logger.info("Dataset [%s] already fully extracted (%d samples). Loading from store...", dataset_name, already_done)
-                    return store.load(dataset_name)
+                    logger.info("Dataset [%s] already fully extracted (%d samples).", dataset_name, already_done)
+                    if return_in_memory:
+                        return store.load(dataset_name)
+                    return None, None
                 logger.info("Resuming extraction for [%s] from sample index %d / %d", dataset_name, already_done, len(samples))
                 start_idx = already_done
 
@@ -193,7 +197,12 @@ class BatchRunner:
             chunk_labels.clear()
 
         if store is not None:
-            return store.load(dataset_name)
+            if return_in_memory:
+                return store.load(dataset_name)
+            else:
+                total_samples = store.get_num_samples(dataset_name)
+                logger.info("Extraction complete: [%s] saved to disk (%d samples). CPU RAM conserved.", dataset_name, total_samples)
+                return None, None
         else:
             if not chunk_states:
                 raise RuntimeError("No samples extracted and no store provided.")
