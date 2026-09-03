@@ -100,22 +100,38 @@ class BatchRunner:
         samples: List[Tuple[str, int]],
         store: Optional[HiddenStateStore] = None,
         dataset_name: str = "unknown",
+        checkpoint_interval: int = 100,
+        resume: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Run forward passes over all samples and return hidden states.
+        Supports incremental checkpointing to disk and resuming on interruption.
 
         Parameters
         ----------
-        samples       : list of (text, label) tuples
-        store         : HiddenStateStore — if provided, saves tensors to disk
-        dataset_name  : tag written to the store (e.g. "truthfulqa")
+        samples             : list of (text, label) tuples
+        store               : HiddenStateStore — if provided, saves tensors to disk incrementally
+        dataset_name        : tag written to the store (e.g. "truthfulqa")
+        checkpoint_interval : int — save checkpoint every N samples
+        resume              : bool — if True, skip already extracted samples from store
 
         Returns
         -------
-        all_hidden_states : np.ndarray  [N, num_layers, hidden_dim]
-        all_labels        : np.ndarray  [N]
+        all_hidden_states   : np.ndarray  [N, num_layers, hidden_dim]
+        all_labels          : np.ndarray  [N]
         """
-        dataset = QADataset(samples)
+        start_idx = 0
+        if resume and store is not None:
+            already_done = store.get_num_samples(dataset_name)
+            if already_done > 0:
+                if already_done >= len(samples):
+                    logger.info("Dataset [%s] already fully extracted (%d samples). Loading from store...", dataset_name, already_done)
+                    return store.load(dataset_name)
+                logger.info("Resuming extraction for [%s] from sample index %d / %d", dataset_name, already_done, len(samples))
+                start_idx = already_done
+
+        remaining_samples = samples[start_idx:]
+        dataset = QADataset(remaining_samples)
         loader = DataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -124,15 +140,15 @@ class BatchRunner:
             num_workers=0,   # keep 0 for GPU workloads
         )
 
-        all_states: List[np.ndarray] = []
-        all_labels: List[int] = []
+        chunk_states: List[np.ndarray] = []
+        chunk_labels: List[int] = []
 
         self.model.eval()
         self.extractor.register_hooks()
 
         try:
             for batch_idx, (encoding, labels) in enumerate(
-                tqdm(loader, desc=f"Extracting [{dataset_name}]")
+                tqdm(loader, desc=f"Extracting [{dataset_name}]", initial=start_idx // self.batch_size, total=(len(samples) + self.batch_size - 1) // self.batch_size)
             ):
                 encoding = {k: v.to(self.device) for k, v in encoding.items()}
 
@@ -140,7 +156,6 @@ class BatchRunner:
                     _ = self.model(**encoding)
 
                 states_dict = self.extractor.get_states()  # {layer_idx: [B, H]}
-                # Stack layers → [B, num_layers, hidden_dim]
                 num_layers = len(states_dict)
                 batch_size_actual = list(states_dict.values())[0].shape[0]
 
@@ -151,30 +166,37 @@ class BatchRunner:
                 for layer_idx, tensor in states_dict.items():
                     batch_states[:, layer_idx, :] = tensor.numpy()
 
-                all_states.append(batch_states)
-                all_labels.extend(labels)
+                chunk_states.append(batch_states)
+                chunk_labels.extend(labels)
                 self.extractor.clear()
 
-                if batch_idx % 50 == 0:
-                    logger.debug(
-                        "Processed %d / %d samples",
-                        min((batch_idx + 1) * self.batch_size, len(samples)),
-                        len(samples),
-                    )
+                # Checkpoint chunk to disk if threshold reached
+                current_chunk_len = sum(s.shape[0] for s in chunk_states)
+                if store is not None and current_chunk_len >= checkpoint_interval:
+                    c_states = np.concatenate(chunk_states, axis=0)
+                    c_labels = np.array(chunk_labels, dtype=np.int32)
+                    store.append(c_states, c_labels, dataset_name)
+                    chunk_states.clear()
+                    chunk_labels.clear()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
         finally:
             self.extractor.remove_hooks()
 
-        hidden_states = np.concatenate(all_states, axis=0)  # [N, L, H]
-        labels_arr = np.array(all_labels, dtype=np.int32)
-
-        logger.info(
-            "Extraction complete: %s — shape=%s, labels=%s",
-            dataset_name,
-            hidden_states.shape,
-            np.bincount(labels_arr),
-        )
+        # Save remaining leftover samples in last chunk
+        if store is not None and chunk_states:
+            c_states = np.concatenate(chunk_states, axis=0)
+            c_labels = np.array(chunk_labels, dtype=np.int32)
+            store.append(c_states, c_labels, dataset_name)
+            chunk_states.clear()
+            chunk_labels.clear()
 
         if store is not None:
-            store.save(hidden_states, labels_arr, dataset_name)
-
-        return hidden_states, labels_arr
+            return store.load(dataset_name)
+        else:
+            if not chunk_states:
+                raise RuntimeError("No samples extracted and no store provided.")
+            hidden_states = np.concatenate(chunk_states, axis=0)
+            labels_arr = np.array(chunk_labels, dtype=np.int32)
+            return hidden_states, labels_arr

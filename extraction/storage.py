@@ -85,6 +85,82 @@ class HiddenStateStore:
         else:
             self._save_numpy(hidden_states, labels, dataset_name)
 
+    def append(
+        self,
+        hidden_states: np.ndarray,
+        labels: np.ndarray,
+        dataset_name: str,
+    ) -> None:
+        """
+        Append a batch/chunk of hidden states and labels to an existing dataset.
+        Enables incremental checkpointing without storing full arrays in RAM.
+        """
+        if self.format == "hdf5":
+            self._append_hdf5(hidden_states, labels, dataset_name)
+        else:
+            # Fallback for numpy: load existing, concatenate, resave
+            try:
+                existing_hs, existing_lbl = self.load(dataset_name)
+                hs_cat = np.concatenate([existing_hs, hidden_states], axis=0)
+                lbl_cat = np.concatenate([existing_lbl, labels], axis=0)
+            except FileNotFoundError:
+                hs_cat, lbl_cat = hidden_states, labels
+            self.save(hs_cat, lbl_cat, dataset_name)
+
+    def _append_hdf5(self, hidden_states: np.ndarray, labels: np.ndarray, dataset_name: str):
+        chunk_n, num_layers, hidden_dim = hidden_states.shape
+        with h5py.File(self.path, "a") as f:
+            if dataset_name not in f:
+                grp = f.create_group(dataset_name)
+                grp.create_dataset(
+                    "hidden_states",
+                    data=hidden_states,
+                    maxshape=(None, num_layers, hidden_dim),
+                    chunks=True,
+                    compression="gzip",
+                    compression_opts=4,
+                )
+                grp.create_dataset(
+                    "labels",
+                    data=labels,
+                    maxshape=(None,),
+                    chunks=True,
+                )
+                current_n = chunk_n
+            else:
+                grp = f[dataset_name]
+                hs_ds = grp["hidden_states"]
+                lbl_ds = grp["labels"]
+                current_n = hs_ds.shape[0]
+                new_n = current_n + chunk_n
+
+                hs_ds.resize((new_n, num_layers, hidden_dim))
+                lbl_ds.resize((new_n,))
+
+                hs_ds[current_n:new_n] = hidden_states
+                lbl_ds[current_n:new_n] = labels
+                current_n = new_n
+
+            grp.attrs["n_samples"] = current_n
+            grp.attrs["num_layers"] = num_layers
+            grp.attrs["hidden_dim"] = hidden_dim
+            grp.attrs["updated_at"] = datetime.now(timezone.utc).isoformat()
+        logger.info("Appended %d samples to [%s] (Total: %d)", chunk_n, dataset_name, current_n)
+
+    def get_num_samples(self, dataset_name: str) -> int:
+        """Return the number of samples stored for dataset_name, or 0 if not present."""
+        if self.format == "hdf5" and self.path.exists():
+            with h5py.File(self.path, "r") as f:
+                if dataset_name in f:
+                    return f[dataset_name]["hidden_states"].shape[0]
+            return 0
+        else:
+            path = self.directory / f"{self.filename}_{dataset_name}.npz"
+            if path.exists():
+                data = np.load(path)
+                return data["hidden_states"].shape[0]
+            return 0
+
     def _save_hdf5(self, hidden_states, labels, dataset_name):
         with h5py.File(self.path, "a") as f:
             grp = f.require_group(dataset_name)
