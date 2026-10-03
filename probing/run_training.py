@@ -33,7 +33,8 @@ def main():
         sys.exit(1)
 
     logger.info(f"Available datasets in HDF5 store: {datasets}")
-    dataset_name = datasets[0]  # e.g., 'truthfulqa'
+    # Prefer truthfulqa for quick training, or halueval with fast probes
+    dataset_name = "truthfulqa" if "truthfulqa" in datasets else datasets[0]
     
     logger.info(f"Loading hidden states for dataset '{dataset_name}'...")
     hs, labels = store.load(dataset_name)
@@ -42,11 +43,15 @@ def main():
     models_dir = project_root / "results" / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Starting probe training across all layers...")
+    # For large datasets (N > 5000), RBF SVM has quadratic complexity O(N^2).
+    # Use Logistic Regression & MLP which scale linearly O(N) and finish in ~1-2 minutes!
+    probe_types = ["logistic_regression", "mlp"] if hs.shape[0] > 5000 else ["logistic_regression", "mlp", "svm"]
+
+    logger.info(f"Starting probe training across all layers using probes: {probe_types}...")
     trainer = ProbeTrainer(
         hidden_states=hs,
         labels=labels,
-        probe_types=["logistic_regression", "mlp", "svm"],
+        probe_types=probe_types,
         save_dir=models_dir,
     )
 
