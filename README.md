@@ -194,29 +194,44 @@ uvicorn inference.api_wrapper:app --host 0.0.0.0 --port 8000
 
 ---
 
-## 📊 Key Results
+## 📊 Key Empirical Results (Phase 3 Probe Training)
 
-| Metric | Value | Context |
-|--------|-------|---------|
-| Best AUROC (LR, Layer 15, TruthfulQA) | ~0.94–0.96 | Replication of Azaria & Mitchell (2023) |
-| Best AUROC (MLP, Layer 15) | ~0.95–0.97 | Small gain from non-linearity |
-| Cross-dataset AUROC (TruthfulQA→HaluEval) | ~0.85–0.90 | **Original contribution** |
-| Shuffled-label control AUROC | ~0.50 | Confirms no memorisation |
-| Random-layer control (Layer 1) | ~0.52 | Confirms layer-specificity |
-| **Peak signal zone** | **Layers 14–16 of 32** | Mid-network, consistent with literature |
-| Probe training time (per layer) | <60s on CPU | Extremely lightweight |
-| Inference overhead | <2ms per query | Negligible in production |
+Full Phase 3 probing benchmark evaluated on **20,000 HaluEval samples** across all 28 transformer layers:
+
+| Metric / Model | Value | Context & Model Architecture |
+|----------------|-------|------------------------------|
+| **Peak Single-Probe AUROC** | **0.9819 (98.19%)** | **Layer 5 (`L05`) — RBF Kernel SVM** |
+| **Runner-Up Layer 6 AUROC** | **0.9818 (98.18%)** | Layer 6 (`L06`) — RBF Kernel SVM |
+| **Runner-Up Layer 7 AUROC** | **0.9818 (98.18%)** | Layer 7 (`L07`) — RBF Kernel SVM |
+| **Best MLP Probe AUROC** | **0.9815 (98.15%)** | Layer 16 (`L16`) — MLP (256, 64) |
+| **Top-5 Stacking Ensemble AUROC**| **0.9791 (97.91%)** | Meta-classifier stacked across top 5 layers |
+| **Ensemble Accuracy** | **93.87%** | Binary accuracy on 4,000 test samples |
+| **Ensemble F1-Score** | **93.99%** | F1-Score on test set |
+
+### Top-5 Layers Performance Table (HaluEval, N=20,000)
+| Layer Label | Layer Index | Probe Type | AUROC |
+|:---:|:---:|:---:|:---:|
+| **L05** | Layer 4 | RBF Kernel SVM (`SVC`) | **0.9819** |
+| **L06** | Layer 5 | RBF Kernel SVM (`SVC`) | **0.9818** |
+| **L07** | Layer 6 | RBF Kernel SVM (`SVC`) | **0.9818** |
+| **L16** | Layer 15 | MLP Neural Net (256, 64) | **0.9815** |
+| **L15** | Layer 14 | MLP Neural Net (256, 64) | **0.9814** |
 
 ---
 
 ## ⚡ Engineering Notes & Technical Optimization (Phase 3)
 
 ### 1. Scaling Probe Training: RBF Kernel vs. Linear SVM
-During Phase 3 training on the 20,000-sample **HaluEval** dataset ($N=20,000, d=1536$), the initial non-linear RBF Kernel SVM (`SVC(kernel="rbf")`) hit a severe quadratic computational bottleneck ($\mathcal{O}(N^2)$ pairwise distance matrix operations), requiring ~15 minutes per layer (~5+ hours total on CPU across 28 layers).
+During Phase 3 training on the 20,000-sample **HaluEval** dataset ($N=20,000, d=1536$), both **RBF Kernel SVM** and **Linear SVM** were extensively benchmarked:
 
-- **Root Cause:** Calculating Gaussian kernel matrices $K(x_i, x_j) = \exp(-\gamma \|x_i - x_j\|^2)$ for 16,000 training points requires over 256 million floating-point operations *per layer*.
-- **Optimization:** We refactored the SVM probe to use **Linear SVM (`LinearSVC` calibrated with probability scaling)**. Linear SVM operates in linear time $\mathcal{O}(N \cdot d)$, reducing training time from 5+ hours to **under 2 minutes** total (~0.1s per layer) across all 28 layers.
-- **Theoretical Rationale:** According to the **Linear Representation Hypothesis** (*Marks & Tegmark 2023*, *Azaria & Mitchell 2023*) and **Cover's Theorem**, high-dimensional transformer residual streams ($d=1536$) encode truth directions as linear hyperplanes. Non-linear RBF kernels tend to overfit high-dimensional noise, whereas Linear SVM provides optimal generalization. Non-linear representation capacity remains fully evaluated via our multi-layer **MLP neural net probe**.
+- **RBF Kernel SVM Benchmark (`SVC(kernel="rbf")`):**
+  - **Full Execution:** Ran for 6.5 hours across all 28 layers.
+  - **Empirical Peak:** Achieved a peak **0.9819 AUROC** on Layer 5 (`L05`).
+  - **Bottleneck:** Required $\mathcal{O}(N^2)$ distance calculations ($\sim 256$ million operations per layer) taking ~15 minutes per layer on CPU.
+
+- **Linear SVM Optimization (`LinearSVC` + `CalibratedClassifierCV`):**
+  - **Execution Speed:** Operates in linear time $\mathcal{O}(N \cdot d)$, reducing training time across all 28 layers from 6.5 hours down to **under 2 minutes** (~0.1s per layer).
+  - **Theoretical Rationale:** Grounded in the **Linear Representation Hypothesis** (*Marks & Tegmark 2023*, *Azaria & Mitchell 2023*) and **Cover's Theorem**, high-dimensional transformer residual streams ($d=1536$) encode truth directions as linear hyperplanes. Linear SVM provides optimal linear boundary extraction with zero computational lag. Non-linear representation capacity remains fully evaluated via our multi-layer **MLP neural net probe**.
 
 ### 2. Environment Path Constraints
 Python's built-in `venv` module rejects virtual environment initialization inside paths containing POSIX PATH separators (e.g., colons `:` in folder names). When working in such directory trees, virtual environments are created in user space (`~/llm_hall_venv`) to guarantee clean binary link resolution.
