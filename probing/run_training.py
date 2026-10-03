@@ -43,9 +43,7 @@ def main():
     models_dir = project_root / "results" / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    # For large datasets (N > 5000), RBF SVM has quadratic complexity O(N^2).
-    # Use Logistic Regression & MLP which scale linearly O(N) and finish in ~1-2 minutes!
-    probe_types = ["logistic_regression", "mlp"] if hs.shape[0] > 5000 else ["logistic_regression", "mlp", "svm"]
+    probe_types = ["logistic_regression", "mlp", "svm"]
 
     logger.info(f"Starting probe training across all layers using probes: {probe_types}...")
     trainer = ProbeTrainer(

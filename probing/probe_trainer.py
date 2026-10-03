@@ -61,11 +61,18 @@ def _make_mlp(hidden_layer_sizes: Tuple = (256, 64), max_iter: int = 500) -> Pip
     ])
 
 
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.svm import LinearSVC
+
+
 def _make_svm(C: float = 1.0) -> Pipeline:
+    # LinearSVC with CalibratedClassifierCV provides fast O(N) SVM training with probability outputs
     return Pipeline([
         ("scaler", StandardScaler()),
-        ("clf", SVC(kernel="rbf", C=C, probability=True,
-                    class_weight="balanced", random_state=42)),
+        ("clf", CalibratedClassifierCV(
+            LinearSVC(C=C, dual=False, class_weight="balanced", random_state=42, max_iter=2000),
+            cv=3,
+        )),
     ])
 
 
