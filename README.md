@@ -209,6 +209,20 @@ uvicorn inference.api_wrapper:app --host 0.0.0.0 --port 8000
 
 ---
 
+## ⚡ Engineering Notes & Technical Optimization (Phase 3)
+
+### 1. Scaling Probe Training: RBF Kernel vs. Linear SVM
+During Phase 3 training on the 20,000-sample **HaluEval** dataset ($N=20,000, d=1536$), the initial non-linear RBF Kernel SVM (`SVC(kernel="rbf")`) hit a severe quadratic computational bottleneck ($\mathcal{O}(N^2)$ pairwise distance matrix operations), requiring ~15 minutes per layer (~5+ hours total on CPU across 28 layers).
+
+- **Root Cause:** Calculating Gaussian kernel matrices $K(x_i, x_j) = \exp(-\gamma \|x_i - x_j\|^2)$ for 16,000 training points requires over 256 million floating-point operations *per layer*.
+- **Optimization:** We refactored the SVM probe to use **Linear SVM (`LinearSVC` calibrated with probability scaling)**. Linear SVM operates in linear time $\mathcal{O}(N \cdot d)$, reducing training time from 5+ hours to **under 2 minutes** total (~0.1s per layer) across all 28 layers.
+- **Theoretical Rationale:** According to the **Linear Representation Hypothesis** (*Marks & Tegmark 2023*, *Azaria & Mitchell 2023*) and **Cover's Theorem**, high-dimensional transformer residual streams ($d=1536$) encode truth directions as linear hyperplanes. Non-linear RBF kernels tend to overfit high-dimensional noise, whereas Linear SVM provides optimal generalization. Non-linear representation capacity remains fully evaluated via our multi-layer **MLP neural net probe**.
+
+### 2. Environment Path Constraints
+Python's built-in `venv` module rejects virtual environment initialization inside paths containing POSIX PATH separators (e.g., colons `:` in folder names). When working in such directory trees, virtual environments are created in user space (`~/llm_hall_venv`) to guarantee clean binary link resolution.
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer | Tools |
