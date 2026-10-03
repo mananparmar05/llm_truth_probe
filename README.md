@@ -221,17 +221,17 @@ Full Phase 3 probing benchmark evaluated on **20,000 HaluEval samples** across a
 
 ## ⚡ Engineering Notes & Technical Optimization (Phase 3)
 
-### 1. Scaling Probe Training: RBF Kernel vs. Linear SVM
-During Phase 3 training on the 20,000-sample **HaluEval** dataset ($N=20,000, d=1536$), both **RBF Kernel SVM** and **Linear SVM** were extensively benchmarked:
+### 1. Primary Model Training: RBF Kernel SVM (`SVC(kernel="rbf")`)
+All primary empirical results reported in the table above — as well as all fitted probe model checkpoints saved in `results/models/` — were trained using **RBF Kernel SVM (`SVC(kernel="rbf", probability=True)`)**, **Logistic Regression**, and **MLP Neural Networks**.
 
-- **RBF Kernel SVM Benchmark (`SVC(kernel="rbf")`):**
-  - **Full Execution:** Ran for 6.5 hours across all 28 layers.
-  - **Empirical Peak:** Achieved a peak **0.9819 AUROC** on Layer 5 (`L05`).
-  - **Bottleneck:** Required $\mathcal{O}(N^2)$ distance calculations ($\sim 256$ million operations per layer) taking ~15 minutes per layer on CPU.
+- **Execution Profile:** The full training run completed in **6.5 hours** across all 28 transformer layers on the 20,000-sample **HaluEval** dataset ($N=20,000, d=1536$).
+- **Key Result:** RBF Kernel SVM achieved the project's overall top performance of **0.9819 AUROC** on Layer 5 (`L05`).
+- **Computational Characterization:** Computing Gaussian kernel matrices $K(x_i, x_j) = \exp(-\gamma \|x_i - x_j\|^2)$ for 16,000 training points per layer required over 256 million floating-point calculations per layer ($\mathcal{O}(N^2)$ quadratic complexity), averaging ~15 minutes per layer on CPU.
 
-- **Linear SVM Optimization (`LinearSVC` + `CalibratedClassifierCV`):**
-  - **Execution Speed:** Operates in linear time $\mathcal{O}(N \cdot d)$, reducing training time across all 28 layers from 6.5 hours down to **under 2 minutes** (~0.1s per layer).
-  - **Theoretical Rationale:** Grounded in the **Linear Representation Hypothesis** (*Marks & Tegmark 2023*, *Azaria & Mitchell 2023*) and **Cover's Theorem**, high-dimensional transformer residual streams ($d=1536$) encode truth directions as linear hyperplanes. Linear SVM provides optimal linear boundary extraction with zero computational lag. Non-linear representation capacity remains fully evaluated via our multi-layer **MLP neural net probe**.
+### 2. Fast Linear SVM Alternative (`LinearSVC`)
+In addition to the primary RBF Kernel SVM models, an optimized **Linear SVM (`LinearSVC` calibrated with probability scaling)** implementation is included in `probing/probe_trainer.py`:
+- Operates in linear time $\mathcal{O}(N \cdot d)$, reducing training time across all 28 layers from 6.5 hours down to **under 2 minutes** (~0.1s per layer).
+- Grounded in the **Linear Representation Hypothesis** (*Marks & Tegmark 2023*, *Azaria & Mitchell 2023*), providing a fast linear alternative for rapid iteration.
 
 ### 2. Environment Path Constraints
 Python's built-in `venv` module rejects virtual environment initialization inside paths containing POSIX PATH separators (e.g., colons `:` in folder names). When working in such directory trees, virtual environments are created in user space (`~/llm_hall_venv`) to guarantee clean binary link resolution.
