@@ -156,6 +156,30 @@ Create a new Colab Notebook and run the first cell:
 
 ## 🚀 Quick Execution Guide
 
+### Colab workflow for new results
+
+Open [06_colab_pipeline.ipynb](notebooks/06_colab_pipeline.ipynb) in Colab, select a
+T4 GPU runtime, and run the cells in order. The default smoke run uses 64
+questions per dataset and two layers. Set `SMOKE_RUN = False` for both full
+benchmarks and every layer. The default model is Qwen2.5-7B in 4-bit NF4. If you
+select a gated model, request access on Hugging Face and add the `HF_TOKEN`
+secret in Colab.
+
+The notebook writes to `MyDrive/llm_truth_probe/<run-name>/`. Keep the same
+checkout, model settings, and run folder to resume after a disconnect. Changing
+the dataset sample, model, batch size, or layer list requires a new run folder.
+The full Qwen run needs about 4.1 GiB for raw float16 activations, before HDF5
+compression and excluding probe outputs. After extraction, probe training can
+run in a CPU runtime with Drive mounted.
+
+The runner rebuilds splits by question and chooses each dataset's best probe
+using validation AUROC. Open `results/test_metrics.csv` for the held-out scores,
+`results/validation_metrics.csv` for layer selection, and
+`results/cross_dataset_metrics.csv` for transfer scores. The results folder also
+contains fitted probes, ROC curves, confusion matrices, and layer plots. The
+default run trains logistic regression and calibrated linear SVM probes. Add
+`mlp` to the notebook's `PROBES` list to include the MLP.
+
 Once your environment is set up and activated:
 
 ```bash
