@@ -180,6 +180,45 @@ contains fitted probes, ROC curves, confusion matrices, and layer plots. The
 default run trains logistic regression and calibrated linear SVM probes. Add
 `mlp` to the notebook's `PROBES` list to include the MLP.
 
+### Full benchmark, controls, and serving
+
+The research question is whether a probe trained on a frozen model's hidden
+states can distinguish correct answers from hallucinated ones, and whether the
+signal transfers to a different benchmark. The model sees the complete
+question–answer pair before the probe scores it.
+
+1. Run notebook 06 with `SMOKE_RUN = False`. Keep the full-run manifest,
+   `test_metrics.csv`, and `cross_dataset_metrics.csv` together. The saved
+   smoke notebook only covers 64 questions per dataset and two layers.
+2. After training completes, add the following cell to the same Colab session.
+   It checks out the controls code separately so the extraction checkout and
+   its resume metadata stay intact. The controls use the current `OUTPUT` and
+   `RESULT_NAME`, so they also work on the existing smoke run.
+
+   ```python
+   controls_repo = Path("/content/llm_truth_probe_controls")
+   if not controls_repo.exists():
+       subprocess.run(
+           ["git", "clone", "--single-branch", "--branch", "codex/colab-controls",
+            "https://github.com/mananparmar05/llm_truth_probe.git", str(controls_repo)],
+           check=True,
+       )
+   subprocess.run(
+       [sys.executable, "-m", "probing.colab_pipeline", "controls", "--output",
+        str(OUTPUT), "--result-name", RESULT_NAME],
+       cwd=controls_repo, check=True,
+   )
+   ```
+
+3. Review `control_metrics.csv` and `control_comparison.png`. They compare
+   the validation-selected logistic probe with ten training-label permutations
+   and a text-length baseline on the same held-out questions. Use the transfer
+   scores to assess whether results carry across benchmarks.
+4. Once a checkpoint is selected, wire its model ID, exact revision, layer,
+   and quantization into the inference wrapper. Check that the API reproduces
+   offline scores on sample rows and measure classifier and end-to-end latency
+   separately.
+
 Once your environment is set up and activated:
 
 ```bash
