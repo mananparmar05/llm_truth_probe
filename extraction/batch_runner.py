@@ -148,8 +148,8 @@ class BatchRunner:
                     (batch_size_actual, num_layers, list(states_dict.values())[0].shape[1]),
                     dtype=np.float32,
                 )
-                for layer_idx, tensor in states_dict.items():
-                    batch_states[:, layer_idx, :] = tensor.numpy()
+                for column, layer_idx in enumerate(sorted(states_dict)):
+                    batch_states[:, column, :] = states_dict[layer_idx].numpy()
 
                 all_states.append(batch_states)
                 all_labels.extend(labels)
