@@ -261,12 +261,67 @@ def train(args):
     print(f"Results saved to {results_dir}", flush=True)
 
 
+def run_controls(args):
+    output = args.output
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    results_dir = output / args.result_name
+    validation = pd.read_csv(results_dir / "validation_metrics.csv")
+    records = []
+    for dataset in DATASETS:
+        path = output / f"{dataset}_rows.csv"
+        if hashlib.sha256(path.read_bytes()).hexdigest() != manifest["row_sha256"][dataset]:
+            raise ValueError(f"Row manifest does not match saved activations: {path}")
+        rows = pd.read_csv(path, keep_default_na=False)
+        candidates = validation.loc[
+            validation.dataset.eq(dataset) & validation.probe.eq("logistic_regression")
+        ]
+        best = candidates.sort_values(["auroc", "layer"], ascending=[False, True]).iloc[0]
+        layer = int(best.layer)
+        features = load_layer(output, manifest, dataset, manifest["layers"].index(layer))
+        mask = rows.split == "train"
+        labels = rows.label[mask].to_numpy()
+        probe = joblib.load(results_dir / f"{dataset}_layer{layer:02d}_logistic_regression.pkl")
+        records.append({
+            "dataset": dataset, "layer": layer, "control": "activation_probe", "seed": SEED,
+            **metrics(probe, features, rows, "test"),
+        })
+        for seed in range(SEED, SEED + args.repeats):
+            shuffled = np.random.default_rng(seed).permutation(labels)
+            probe = PROBE_FACTORIES["logistic_regression"]()
+            probe.fit(features[mask], shuffled)
+            records.append({
+                "dataset": dataset, "layer": layer, "control": "shuffled_labels", "seed": seed,
+                **metrics(probe, features, rows, "test"),
+            })
+        lengths = np.column_stack([
+            rows.question.str.len(), rows.answer.str.len(),
+            rows.question.str.split().str.len(), rows.answer.str.split().str.len(),
+        ])
+        probe = PROBE_FACTORIES["logistic_regression"]()
+        probe.fit(lengths[mask], labels)
+        records.append({
+            "dataset": dataset, "layer": None, "control": "text_length", "seed": SEED,
+            **metrics(probe, lengths, rows, "test"),
+        })
+
+    table = pd.DataFrame(records)
+    table["layer"] = table["layer"].astype("Int64")
+    table.to_csv(results_dir / "control_metrics.csv", index=False)
+    summary = table.groupby(["dataset", "control"]).auroc.agg(["mean", "std", "count"])
+    ax = summary["mean"].unstack().plot.bar(rot=0, ylabel="Held-out AUROC", ylim=(0, 1))
+    ax.axhline(0.5, color="gray", linestyle="--")
+    ax.figure.savefig(results_dir / "control_comparison.png", dpi=150, bbox_inches="tight")
+    plt.close(ax.figure)
+    print(summary.to_string(), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     extraction = commands.add_parser("extract")
     evaluation = commands.add_parser("train")
-    for command in (extraction, evaluation):
+    controls = commands.add_parser("controls")
+    for command in (extraction, evaluation, controls):
         command.add_argument("--output", type=Path, required=True)
     extraction.add_argument("--model", default="Qwen/Qwen2.5-7B")
     extraction.add_argument("--revision", default="main")
@@ -278,17 +333,24 @@ def main():
     evaluation.add_argument("--probes", nargs="+", choices=PROBE_FACTORIES,
                             default=["logistic_regression", "svm"])
     evaluation.add_argument("--result-name", default="results")
+    controls.add_argument("--result-name", default="results")
+    controls.add_argument("--repeats", type=int, default=10)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     if args.command == "extract":
         if min(args.batch_size, args.max_length, args.chunk_rows) < 1 or args.limit < 0:
             parser.error("Batch size, max length and chunk rows must be positive; limit must be nonnegative.")
         extract(args)
-    else:
+    elif args.command == "train":
         if "logistic_regression" not in args.probes or len(set(args.probes)) != len(args.probes):
             parser.error("Provide unique probes including logistic_regression for the transfer study.")
         with threadpool_limits(limits=2):
             train(args)
+    else:
+        if args.repeats < 1:
+            parser.error("--repeats must be positive.")
+        with threadpool_limits(limits=2):
+            run_controls(args)
 
 
 if __name__ == "__main__":
